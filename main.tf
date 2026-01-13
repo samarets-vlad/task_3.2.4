@@ -81,6 +81,7 @@ module "web_server" {
   enable_eip        = true
 
   domain_name = "mydevtasktrain.pp.ua"
+  # Обновляем DNS запись
 }
 
 output "server_public_ip" {
