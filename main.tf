@@ -1,3 +1,11 @@
+terraform {
+  backend "s3" {
+    bucket = "my-test-bucket-20260109192313009400000001"
+    key    = "terraform.tfstate"
+    region = "us-east-1"
+  }
+}
+
 resource "aws_vpc" "main" {
 
  cidr_block = "10.0.0.0/16"
@@ -54,7 +62,7 @@ resource "aws_security_group" "web_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    cidr_blocks = ["162.120.187.100/32"]
   }
 
   egress {
