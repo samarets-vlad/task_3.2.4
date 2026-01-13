@@ -23,12 +23,19 @@ resource "aws_instance" "web" {
   }
 
   user_data = <<-EOF
-              #!/bin/bash
-              yum update -y
-              amazon-linux-extras install nginx1 -y
-              systemctl start nginx
-              systemctl enable nginx
-              EOF
+#!/bin/bash
+sudo yum update -y
+sudo amazon-linux-extras install nginx1 -y 
+sudo systemctl enable nginx
+sudo systemctl start nginx
+
+
+sudo amazon-linux-extras install epel -y
+sudo yum install certbot python-certbot-nginx -y
+
+
+sudo certbot --nginx --non-interactive --agree-tos --email admin@${var.domain_name} -d ${var.domain_name}
+  EOF
 }
 
 resource "aws_eip" "web_ip" {

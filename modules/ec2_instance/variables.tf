@@ -10,3 +10,7 @@ variable "enable_eip" {
   type        = bool
   default     = false
 }
+
+variable "domain_name" {
+  type        = string
+}

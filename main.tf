@@ -79,9 +79,23 @@ module "web_server" {
   subnet_id         = aws_subnet.main.id
   security_group_id = aws_security_group.web_sg.id
   enable_eip        = true
+
+  domain_name       = "mydevtasktrain.pp.ua"
 }
 
 output "server_public_ip" {
   description = "Public IP address of the web server"
   value       = module.web_server.public_ip
+}
+
+data "aws_route53_zone" "main" {
+  name = "mydevtasktrain.pp.ua"
+}
+
+resource "aws_route53_record" "web" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "mydevtasktrain.pp.ua"
+  type    = "A"
+  ttl     = "300"
+  records = [module.web_server.public_ip]
 }
