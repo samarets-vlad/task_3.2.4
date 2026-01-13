@@ -8,7 +8,7 @@ terraform {
 
 resource "aws_vpc" "main" {
 
- cidr_block = "10.0.0.0/16"
+  cidr_block = "10.0.0.0/16"
 
 }
 
@@ -22,7 +22,7 @@ resource "aws_internet_gateway" "gw" {
 }
 
 resource "aws_route_table" "route" {
-    vpc_id = aws_vpc.main.id
+  vpc_id = aws_vpc.main.id
 
   route {
     cidr_block = "0.0.0.0/0"
@@ -31,15 +31,15 @@ resource "aws_route_table" "route" {
 }
 
 resource "aws_route_table_association" "together" {
-    subnet_id = aws_subnet.main.id
-    route_table_id = aws_route_table.route.id
+  subnet_id      = aws_subnet.main.id
+  route_table_id = aws_route_table.route.id
 }
 
 
 resource "aws_security_group" "web_sg" {
   name        = "allow_web_traffic"
   description = "Allow Web and SSH inbound traffic"
-  vpc_id      = aws_vpc.main.id  
+  vpc_id      = aws_vpc.main.id
 
   ingress {
     description = "HTTP from Internet"
@@ -80,7 +80,7 @@ module "web_server" {
   security_group_id = aws_security_group.web_sg.id
   enable_eip        = true
 
-  domain_name       = "mydevtasktrain.pp.ua"
+  domain_name = "mydevtasktrain.pp.ua"
 }
 
 output "server_public_ip" {
@@ -93,10 +93,10 @@ data "aws_route53_zone" "main" {
 }
 
 resource "aws_route53_record" "web" {
-  zone_id = data.aws_route53_zone.main.zone_id
-  name    = "mydevtasktrain.pp.ua"
-  type    = "A"
-  ttl     = "300"
-  records = [module.web_server.public_ip]
+  zone_id         = data.aws_route53_zone.main.zone_id
+  name            = "mydevtasktrain.pp.ua"
+  type            = "A"
+  ttl             = "300"
+  records         = [module.web_server.public_ip]
   allow_overwrite = true
 }
