@@ -98,4 +98,5 @@ resource "aws_route53_record" "web" {
   type    = "A"
   ttl     = "300"
   records = [module.web_server.public_ip]
+  allow_overwrite = true
 }
