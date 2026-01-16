@@ -100,6 +100,42 @@ cp -n .env.example .env || true
 # Запускаем от имени ec2-user
 runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && docker compose -f docker/docker-compose.yml up -d"
 
+# 6. Установка Certbot 
+python3 -m venv /opt/certbot
+/opt/certbot/bin/pip install --upgrade pip
+/opt/certbot/bin/pip install certbot certbot-nginx
+ln -sf /opt/certbot/bin/certbot /usr/bin/certbot
+
+# 7. ОЖИДАНИЕ DNS 
+PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
+
+echo "Waiting for DNS propagation..."
+echo "My IP: $PUBLIC_IP"
+
+MAX_RETRIES=60 # 60 попыток по 10 сек = 10 минут ожидания
+COUNT=0
+
+while [ $COUNT -lt $MAX_RETRIES ]; do
+    CURRENT_DNS=$(dig +short $DOMAIN | tail -n1)
+    
+    echo "Check $COUNT: DNS reports $CURRENT_DNS"
+    
+    if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
+        echo "DNS matches! Starting Certbot..."
+        break
+    fi
+    
+    sleep 10
+    COUNT=$((COUNT+1))
+done
+
+if [ "$CURRENT_DNS" != "$PUBLIC_IP" ]; then
+    echo "Error: DNS did not propagate in time. Skipping SSL."
+    exit 1
+fi
+
+# 8. Запуск Certbot
+certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
 
 # 5. WATCHER SCRIPT
 cat <<'WATCHER' > /usr/local/bin/docker-compose-watcher.sh
@@ -140,43 +176,7 @@ SERVICE
 
 systemctl enable --now docker-watcher.service
 
-# 6. Установка Certbot 
-python3 -m venv /opt/certbot
-/opt/certbot/bin/pip install --upgrade pip
-/opt/certbot/bin/pip install certbot certbot-nginx
-ln -sf /opt/certbot/bin/certbot /usr/bin/certbot
-
-# 7. ОЖИДАНИЕ DNS 
-PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-
-echo "Waiting for DNS propagation..."
-echo "My IP: $PUBLIC_IP"
-
-MAX_RETRIES=60 # 60 попыток по 10 сек = 10 минут ожидания
-COUNT=0
-
-while [ $COUNT -lt $MAX_RETRIES ]; do
-    CURRENT_DNS=$(dig +short $DOMAIN | tail -n1)
-    
-    echo "Check $COUNT: DNS reports $CURRENT_DNS"
-    
-    if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
-        echo "DNS matches! Starting Certbot..."
-        break
-    fi
-    
-    sleep 10
-    COUNT=$((COUNT+1))
-done
-
-if [ "$CURRENT_DNS" != "$PUBLIC_IP" ]; then
-    echo "Error: DNS did not propagate in time. Skipping SSL."
-    exit 1
-fi
-
-# 8. Запуск Certbot
-certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
-
 echo "Setup Complete!"
 EOF
 }
+
