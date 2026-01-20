@@ -16,6 +16,11 @@ terraform {
   }
 }
 
+resource "aws_key_pair" "deployer" {
+  key_name   = "ghostfolio-key"
+  public_key = var.ssh_public_key # Берем значение из variables.tf
+}
+
 # 1. ПЕРЕХОД НА ОФИЦИАЛЬНЫЙ МОДУЛЬ VPC
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
@@ -118,6 +123,14 @@ resource "aws_security_group" "web_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+    ingress {
+    description = "ssh"
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     from_port   = 0
     to_port     = 0
@@ -137,6 +150,8 @@ module "web_server" {
   # Передаем новые данные в модуль для настройки бэкапа
   s3_bucket_name            = aws_s3_bucket.db_backups.id
   iam_instance_profile_name = aws_iam_instance_profile.ec2_profile.name
+
+  key_name                  = aws_key_pair.deployer.key_name
 }
 
 # 7. ROUTE 53
