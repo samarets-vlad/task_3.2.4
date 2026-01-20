@@ -38,80 +38,79 @@ resource "aws_instance" "web" {
     Name = "Ghostfolio-App"
   }
 
-  user_data = <<-EOF
+ user_data = <<-EOF
 #!/bin/bash
 set -x
 
-# Логируем вывод в файл для отладки
+# 1. Логування (щоб ми бачили помилки в /var/log/user-data.log)
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-SWAP_FILE="/swapfile"
-SWAP_SIZE="4G"
-SWAP_COUNT_MB=4096
+echo "Starting configuration..."
 
-if ! swapon --show=NAME | grep -qx "$SWAP_FILE"; then
-  if [ ! -f "$SWAP_FILE" ]; then
-    fallocate -l "$SWAP_SIZE" "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_COUNT_MB"
+# --- 2. SSH ДОСТУП (НАЙВАЖЛИВІШЕ!) ---
+# Додаємо ключ саме для користувача ec2-user, а не root
+mkdir -p /home/ec2-user/.ssh
+echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDx1+MBA4+PxqZh5oaMX52YwC3+t2gQ0QFOhXzhhXQeWAuqNmumLGk3YFQTTQPPUsAa1+nZYjoP+slD4unB78oduXmTzLKZpRNmuTYBTmgSDgcM/XW8Z/egbZuirWxSZJeamI4QvvC6rZszEMrOfyeGKw+wcaZPDkJjQu6zyn5Uyqkhh/lPY0J2mIXLoVgaDW/WWptC8QrorfvMbCUlbHJY8iYVp2wRix0WR0EC2yRXaSH0NWNcYdUatFLUPAZcMKgiV4dwNf4GftfGRWZSWTbiAblMCYg51KvnpB5TyqakUVuFI5BBrry8yXlUBr9LYqTt5I3o4LM6KPQYEW5hwU7Y0YfreHZwvuCwptlGDaO1xfLisgX82838Sfvje4oEg+DJdvEiUHUqMEHm5OMPxpwWeAkHvrDXQQPLm5wGvZwTGfx7egukZQ3qxWB0gJJPPvS5jzdbKOKmXfS4LIvc7x49f5WdIpPr+nS52N+VHI0vG/RTJGYfMxM0bJLxJAcbzsk33vpbo2R+GkPXL6SVAhCGlWw4qOqq+uM/0Ela3DsrGS7NO1mSB1HaUAIps8+Q397Hvsrak2GkQ98v2QlRsIc8D++FnHdFInXSZ4Cq7onuJSQb/FdIRV9st2e+wDQhVcFIoFPpyTuNsUGGLw/zQJL+cRRQ27ujm2HVzjakjSh0EQ== vlad@UbuntuServer" >> /home/ec2-user/.ssh/authorized_keys
+
+# Виставляємо правильні права (SSH дуже суворий до цього)
+chmod 700 /home/ec2-user/.ssh
+chmod 600 /home/ec2-user/.ssh/authorized_keys
+chown -R ec2-user:ec2-user /home/ec2-user/.ssh
+
+echo "SSH key added successfully."
+
+# --- 3. SWAP (ОЗП) ---
+SWAP_FILE="/swapfile"
+if [ ! -f "$SWAP_FILE" ]; then
+    fallocate -l 4G "$SWAP_FILE"
     chmod 600 "$SWAP_FILE"
     mkswap "$SWAP_FILE"
-  fi
-
-  swapon "$SWAP_FILE"
-
-  # Persist after reboot
-  grep -q "^$SWAP_FILE " /etc/fstab || echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
+    swapon "$SWAP_FILE"
+    echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
 fi
 
-swapon --show
-free -h
-
+# --- 4. ЗМІННІ ---
 DOMAIN="${var.domain_name}"
 EMAIL="admin@$DOMAIN"
 S3_BUCKET="${var.s3_bucket_name}"
 
-echo "Starting setup for $DOMAIN on Amazon Linux 2023..."
-
-# 1. Обновление и установка пакетов 
+# --- 5. ВСТАНОВЛЕННЯ DOCKER (Надійний метод для Amazon Linux 2023) ---
 dnf update -y
-# Добавил inotify-tools для работы Watcher Script
-dnf install -y nginx docker git python3-pip ruby wget bind-utils inotify-tools
+dnf install -y git wget bind-utils inotify-tools nginx python3-pip ruby awscli
 
-# 2. Установка Docker (официальный репозиторий)
-dnf update -y
-dnf install -y nginx git python3-pip ruby wget bind-utils inotify-tools awscli curl
-
-dnf remove -y docker docker-client docker-client-latest docker-common docker-latest \
-  docker-latest-logrotate docker-logrotate docker-engine || true
-
-dnf -y install dnf-plugins-core
-
-# Docker официально предлагает ставить через их репозиторий (пример для rpm-based) [web:21]
-dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
-
-# Amazon Linux 2023: фикс $releasever, чтобы repo начал отдавать пакеты (частый workaround) [web:22]
-sed -i 's/\$releasever/9/g' /etc/yum.repos.d/docker-ce.repo
-
-dnf makecache -y
-dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-
+# Ставимо Docker з рідного репозиторія Amazon (це надійніше, ніж підключати CentOS)
+dnf install -y docker
 systemctl enable --now docker
-
-groupadd -f docker
 usermod -aG docker ec2-user
 
+# Ставимо Docker Compose вручну (щоб мати свіжу версію і уникнути проблем з плагінами)
+mkdir -p /usr/local/lib/docker/cli-plugins
+curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
+chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+# Додаємо аліас для root і ec2-user
 echo 'alias docker-compose="docker compose"' >> /home/ec2-user/.bashrc
+echo 'alias docker-compose="docker compose"' >> /root/.bashrc
 
-# быстрая проверка (в лог user-data)
-docker --version
-docker compose version
-# 3. Запуск Nginx (Reverse Proxy)
-systemctl enable --now nginx
+# --- 6. ЗАПУСК GHOSTFOLIO ---
+cd /home/ec2-user
+if [ ! -d ghostfolio ]; then
+    git clone https://github.com/ghostfolio/ghostfolio.git
+    chown -R ec2-user:ec2-user ghostfolio
+fi
 
+# Копіюємо .env, створюючи правильного юзера і базу для скрипта бекапу
+# (Тут важливо, щоб у .env.example були дефолтні значення, або ми їх замінимо)
+# Для надійності можна явно прописати змінні, якщо .env.example зміниться, але поки залишимо так.
+runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && cp -n .env.example .env"
+
+# Запускаємо
+runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && docker compose -f docker/docker-compose.yml up -d"
+
+# --- 7. NGINX CONFIG ---
 cat <<NGINX > /etc/nginx/conf.d/ghostfolio.conf
 server {
     listen 80;
     server_name $DOMAIN;
-
     location / {
         proxy_pass http://127.0.0.1:3333;
         proxy_set_header Host \$host;
@@ -121,47 +120,29 @@ server {
     }
 }
 NGINX
-
-nginx -t
 systemctl reload nginx
 
-# 4. Запуск приложения Ghostfolio
-cd /home/ec2-user
-if [ ! -d ghostfolio ]; then
-    git clone https://github.com/ghostfolio/ghostfolio.git
-    chown -R ec2-user:ec2-user ghostfolio
-fi
-cd ghostfolio
-cp -n .env.example .env || true
-
-# Запускаем Ghostfolio через Docker Compose
-runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && docker compose -f docker/docker-compose.yml up -d"
-
-# 5. Установка Certbot (SSL)
+# --- 8. SSL (CERTBOT) ---
 python3 -m venv /opt/certbot
 /opt/certbot/bin/pip install --upgrade pip
 /opt/certbot/bin/pip install certbot certbot-nginx
 ln -sf /opt/certbot/bin/certbot /usr/bin/certbot
 
-# 6. Ожидание DNS для SSL
+# Чекаємо DNS
 PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-MAX_RETRIES=60 
+MAX_RETRIES=60
 COUNT=0
-
 while [ $COUNT -lt $MAX_RETRIES ]; do
     CURRENT_DNS=$(dig +short $DOMAIN | tail -n1)
     if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
+        certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
         break
     fi
     sleep 10
     COUNT=$((COUNT+1))
 done
 
-if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
-    certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
-fi
-
-# 7. WATCHER SCRIPT (Авто-перезапуск контейнеров при изменении конфига)
+# --- 9. WATCHER SCRIPT ---
 cat <<'WATCHER' > /usr/local/bin/docker-compose-watcher.sh
 #!/bin/bash
 TARGET_DIR="/home/ec2-user/ghostfolio"
@@ -175,10 +156,9 @@ done
 WATCHER
 chmod +x /usr/local/bin/docker-compose-watcher.sh
 
-# Создание сервиса для Watcher
 cat <<SERVICE > /etc/systemd/system/docker-watcher.service
 [Unit]
-Description=Docker Compose Watcher
+Description=Watcher
 After=docker.service network.target
 [Service]
 Type=simple
@@ -190,7 +170,7 @@ WantedBy=multi-user.target
 SERVICE
 systemctl enable --now docker-watcher.service
 
-# --- 6. СКРИПТ БЭКАПА  
+# --- 10. BACKUP SCRIPT ---
 cat <<BACKUP > /usr/local/bin/db_backup.sh
 #!/bin/bash
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
@@ -199,25 +179,17 @@ BACKUP_PATH="/tmp/\$BACKUP_NAME"
 S3_PATH="s3://${var.s3_bucket_name}/backups/\$BACKUP_NAME"
 
 echo "Starting backup..."
-
+# Використовуємо юзера 'user' і базу 'ghostfolio-db' (стандартні для ghostfolio)
 docker exec gf-postgres pg_dump -U user ghostfolio-db > \$BACKUP_PATH
-
 aws s3 cp \$BACKUP_PATH \$S3_PATH
 rm \$BACKUP_PATH
 echo "Done!"
 BACKUP
-
 chmod +x /usr/local/bin/db_backup.sh
 
-# --- 7. CRON JOB ---
+# Cron (о 3-й ночі)
 (crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/db_backup.sh >> /var/log/backup.log 2>&1") | crontab -
-
-
-
-echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDx1+MBA4+PxqZh5oaMX52YwC3+t2gQ0QFOhXzhhXQeWAuqNmumLGk3YFQTTQPPUsAa1+nZYjoP+slD4unB78oduXmTzLKZpRNmuTYBTmgSDgcM/XW8Z/egbZuirWxSZJeamI4QvvC6rZszEMrOfyeGKw+wcaZPDkJjQu6zyn5Uyqkhh/lPY0J2mIXLoVgaDW/WWptC8QrorfvMbCUlbHJY8iYVp2wRix0WR0EC2yRXaSH0NWNcYdUatFLUPAZcMKgiV4dwNf4GftfGRWZSWTbiAblMCYg51KvnpB5TyqakUVuFI5BBrry8yXlUBr9LYqTt5I3o4LM6KPQYEW5hwU7Y0YfreHZwvuCwptlGDaO1xfLisgX82838Sfvje4oEg+DJdvEiUHUqMEHm5OMPxpwWeAkHvrDXQQPLm5wGvZwTGfx7egukZQ3qxWB0gJJPPvS5jzdbKOKmXfS4LIvc7x49f5WdIpPr+nS52N+VHI0vG/RTJGYfMxM0bJLxJAcbzsk33vpbo2R+GkPXL6SVAhCGlWw4qOqq+uM/0Ela3DsrGS7NO1mSB1HaUAIps8+Q397Hvsrak2GkQ98v2QlRsIc8D++FnHdFInXSZ4Cq7onuJSQb/FdIRV9st2e+wDQhVcFIoFPpyTuNsUGGLw/zQJL+cRRQ27ujm2HVzjakjSh0EQ== vlad@UbuntuServer" >> ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
 
 echo "Setup Complete!"
 EOF
-
 }
