@@ -44,40 +44,56 @@ resource "aws_instance" "web" {
 #!/bin/bash
 set -x
 
-# Логируем вывод
+# Логируем вывод в файл для отладки
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
 DOMAIN="${var.domain_name}"
 EMAIL="admin@$DOMAIN"
 S3_BUCKET="${var.s3_bucket_name}"
 
-echo "Starting setup for $DOMAIN..."
+echo "Starting setup for $DOMAIN on Amazon Linux 2023..."
 
-# --- 1. УСТАНОВКА DOCKER (ИСПРАВЛЕННЫЙ МЕТОД) ---
+# 1. Обновление и установка пакетов 
 dnf update -y
-# inotify-tools нужен для Watcher
-dnf install -y git wget bind-utils inotify-tools
+# Добавил inotify-tools для работы Watcher Script
+dnf install -y nginx docker git python3-pip ruby wget bind-utils inotify-tools
 
-# Устанавливаем Docker Engine из стандартного репозитория
-dnf install -y docker
+# 2. Установка Docker (официальный репозиторий)
+dnf update -y
+dnf install -y nginx git python3-pip ruby wget bind-utils inotify-tools awscli curl
+
+dnf remove -y docker docker-client docker-client-latest docker-common docker-latest \
+  docker-latest-logrotate docker-logrotate docker-engine || true
+
+dnf -y install dnf-plugins-core
+
+# Docker официально предлагает ставить через их репозиторий (пример для rpm-based) [web:21]
+dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+
+# Amazon Linux 2023: фикс $releasever, чтобы repo начал отдавать пакеты (частый workaround) [web:22]
+sed -i 's/\$releasever/9/g' /etc/yum.repos.d/docker-ce.repo
+
+dnf makecache -y
+dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
 systemctl enable --now docker
+
+groupadd -f docker
 usermod -aG docker ec2-user
 
-# Устанавливаем Docker Compose ВРУЧНУЮ (чтобы избежать 404 ошибок)
-mkdir -p /usr/local/lib/docker/cli-plugins
-curl -SL https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64 -o /usr/local/lib/docker/cli-plugins/docker-compose
-chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
-
-# Алиас
 echo 'alias docker-compose="docker compose"' >> /home/ec2-user/.bashrc
 
-# --- 2. NGINX & SSL ---
+# быстрая проверка (в лог user-data)
+docker --version
+docker compose version
+# 3. Запуск Nginx (Reverse Proxy)
 systemctl enable --now nginx
 
 cat <<NGINX > /etc/nginx/conf.d/ghostfolio.conf
 server {
     listen 80;
     server_name $DOMAIN;
+
     location / {
         proxy_pass http://127.0.0.1:3333;
         proxy_set_header Host \$host;
@@ -91,27 +107,29 @@ NGINX
 nginx -t
 systemctl reload nginx
 
-# --- 3. ЗАПУСК ПРИЛОЖЕНИЯ ---
+# 4. Запуск приложения Ghostfolio
 cd /home/ec2-user
 if [ ! -d ghostfolio ]; then
     git clone https://github.com/ghostfolio/ghostfolio.git
     chown -R ec2-user:ec2-user ghostfolio
 fi
-# Копируем конфиг (он создает юзера 'user' и базу 'ghostfolio-db')
-cp -n /home/ec2-user/ghostfolio/.env.example /home/ec2-user/ghostfolio/.env || true
+cd ghostfolio
+cp -n .env.example .env || true
 
-# Запуск от имени ec2-user
+# Запускаем Ghostfolio через Docker Compose
 runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && docker compose -f docker/docker-compose.yml up -d"
 
-# --- 4. CERTBOT ---
+# 5. Установка Certbot (SSL)
 python3 -m venv /opt/certbot
 /opt/certbot/bin/pip install --upgrade pip
 /opt/certbot/bin/pip install certbot certbot-nginx
 ln -sf /opt/certbot/bin/certbot /usr/bin/certbot
 
+# 6. Ожидание DNS для SSL
 PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
 MAX_RETRIES=60 
 COUNT=0
+
 while [ $COUNT -lt $MAX_RETRIES ]; do
     CURRENT_DNS=$(dig +short $DOMAIN | tail -n1)
     if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
@@ -125,7 +143,7 @@ if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
     certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
 fi
 
-# --- 5. WATCHER SCRIPT ---
+# 7. WATCHER SCRIPT (Авто-перезапуск контейнеров при изменении конфига)
 cat <<'WATCHER' > /usr/local/bin/docker-compose-watcher.sh
 #!/bin/bash
 TARGET_DIR="/home/ec2-user/ghostfolio"
@@ -139,6 +157,7 @@ done
 WATCHER
 chmod +x /usr/local/bin/docker-compose-watcher.sh
 
+# Создание сервиса для Watcher
 cat <<SERVICE > /etc/systemd/system/docker-watcher.service
 [Unit]
 Description=Docker Compose Watcher
@@ -153,8 +172,7 @@ WantedBy=multi-user.target
 SERVICE
 systemctl enable --now docker-watcher.service
 
-# --- 6. СКРИПТ БЭКАПА (ФИНАЛЬНЫЙ) ---
-# Используем правильные переменные и экранирование
+# --- 6. СКРИПТ БЭКАПА  
 cat <<BACKUP > /usr/local/bin/db_backup.sh
 #!/bin/bash
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
@@ -164,7 +182,6 @@ S3_PATH="s3://${var.s3_bucket_name}/backups/\$BACKUP_NAME"
 
 echo "Starting backup..."
 
-# Используем 'user' и 'ghostfolio-db' (проверено вручную)
 docker exec gf-postgres pg_dump -U user ghostfolio-db > \$BACKUP_PATH
 
 aws s3 cp \$BACKUP_PATH \$S3_PATH
@@ -179,4 +196,5 @@ chmod +x /usr/local/bin/db_backup.sh
 
 echo "Setup Complete!"
 EOF
+
 }
