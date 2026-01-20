@@ -22,8 +22,3 @@ variable "iam_instance_profile_name" {
   description = "IAM Instance Profile name for S3 access"
   type        = string
 }
-
-variable "key_name" {
-  description = "Name of the SSH key pair to use"
-  type        = string
-}

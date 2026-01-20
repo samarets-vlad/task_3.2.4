@@ -16,10 +16,6 @@ terraform {
   }
 }
 
-resource "aws_key_pair" "deployer" {
-  key_name   = "ghostfolio-key"
-  public_key = var.ssh_public_key # Берем значение из variables.tf
-}
 
 # 1. ПЕРЕХОД НА ОФИЦИАЛЬНЫЙ МОДУЛЬ VPC
 module "vpc" {
@@ -151,7 +147,6 @@ module "web_server" {
   s3_bucket_name            = aws_s3_bucket.db_backups.id
   iam_instance_profile_name = aws_iam_instance_profile.ec2_profile.name
 
-  key_name                  = aws_key_pair.deployer.key_name
 }
 
 # 7. ROUTE 53

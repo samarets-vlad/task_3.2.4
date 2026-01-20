@@ -21,8 +21,6 @@ resource "aws_instance" "web" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
 
-  # 1. ПОДКЛЮЧАЕМ SSH КЛЮЧ [FIX]
-  key_name             = var.key_name
   
   # 2. ПОДКЛЮЧАЕМ IAM РОЛЬ (Task 3.2.6)
   iam_instance_profile = var.iam_instance_profile_name 
@@ -52,6 +50,13 @@ EMAIL="admin@$DOMAIN"
 S3_BUCKET="${var.s3_bucket_name}"
 
 echo "Starting setup for $DOMAIN on Amazon Linux 2023..."
+
+mkdir -p /home/ec2-user/.ssh
+echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDx1+MBA4+PxqZh5oaMX52YwC3+t2gQ0QFOhXzhhXQeWAuqNmumLGk3YFQTTQPPUsAa1+nZYjoP+slD4unB78oduXmTzLKZpRNmuTYBTmgSDgcM/XW8Z/egbZuirWxSZJeamI4QvvC6rZszEMrOfyeGKw+wcaZPDkJjQu6zyn5Uyqkhh/lPY0J2mIXLoVgaDW/WWptC8QrorfvMbCUlbHJY8iYVp2wRix0WR0EC2yRXaSH0NWNcYdUatFLUPAZcMKgiV4dwNf4GftfGRWZSWTbiAblMCYg51KvnpB5TyqakUVuFI5BBrry8yXlUBr9LYqTt5I3o4LM6KPQYEW5hwU7Y0YfreHZwvuCwptlGDaO1xfLisgX82838Sfvje4oEg+DJdvEiUHUqMEHm5OMPxpwWeAkHvrDXQQPLm5wGvZwTGfx7egukZQ3qxWB0gJJPPvS5jzdbKOKmXfS4LIvc7x49f5WdIpPr+nS52N+VHI0vG/RTJGYfMxM0bJLxJAcbzsk33vpbo2R+GkPXL6SVAhCGlWw4qOqq+uM/0Ela3DsrGS7NO1mSB1HaUAIps8+Q397Hvsrak2GkQ98v2QlRsIc8D++FnHdFInXSZ4Cq7onuJSQb/FdIRV9st2e+wDQhVcFIoFPpyTuNsUGGLw/zQJL+cRRQ27ujm2HVzjakjSh0EQ== vlad@UbuntuServer" >> /home/ec2-user/.ssh/authorized_keys
+
+chmod 700 /home/ec2-user/.ssh
+chmod 600 /home/ec2-user/.ssh/authorized_keys
+chown -R ec2-user:ec2-user /home/ec2-user/.ssh
 
 # 1. Обновление и установка пакетов 
 dnf update -y
