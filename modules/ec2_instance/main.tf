@@ -45,27 +45,25 @@ set -x
 # Логируем вывод в файл для отладки
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-SWAP_SIZE_GB=4
 SWAP_FILE="/swapfile"
+SWAP_SIZE="4G"
+SWAP_COUNT_MB=4096
 
-if ! swapon --show | grep -q "$SWAP_FILE"; then
+if ! swapon --show=NAME | grep -qx "$SWAP_FILE"; then
   if [ ! -f "$SWAP_FILE" ]; then
-    fallocate -l ${SWAP_SIZE_GB}G "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=$((SWAP_SIZE_GB*1024))
+    fallocate -l "$SWAP_SIZE" "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1M count="$SWAP_COUNT_MB"
     chmod 600 "$SWAP_FILE"
     mkswap "$SWAP_FILE"
   fi
 
   swapon "$SWAP_FILE"
 
-  
-  if ! grep -q "^${SWAP_FILE} " /etc/fstab; then
-    echo "${SWAP_FILE} none swap sw 0 0" >> /etc/fstab
-  fi
+  # Persist after reboot
+  grep -q "^$SWAP_FILE " /etc/fstab || echo "$SWAP_FILE none swap sw 0 0" >> /etc/fstab
 fi
 
 swapon --show
 free -h
-
 
 DOMAIN="${var.domain_name}"
 EMAIL="admin@$DOMAIN"
