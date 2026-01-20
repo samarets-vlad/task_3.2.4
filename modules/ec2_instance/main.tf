@@ -21,6 +21,10 @@ resource "aws_instance" "web" {
   ami           = data.aws_ami.amazon_linux.id
   instance_type = "t3.micro"
 
+  # ПОДКЛЮЧАЕМ IAM РОЛЬ (Task 3.2.6)
+  # Это позволяет серверу обращаться к S3 без паролей и ключей
+  iam_instance_profile = var.iam_instance_profile_name 
+
   root_block_device {
     volume_type = "gp3"
     volume_size = 8
@@ -44,17 +48,17 @@ exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
 DOMAIN="${var.domain_name}"
 EMAIL="admin@$DOMAIN"
+S3_BUCKET="${var.s3_bucket_name}"
 
 echo "Starting setup for $DOMAIN on Amazon Linux 2023..."
 
 # 1. Обновление и установка пакетов 
 dnf update -y
-dnf install -y nginx docker git python3-pip ruby wget bind-utils
-# bind-utils нужен для команды dig
+# Добавил inotify-tools для работы Watcher Script
+dnf install -y nginx docker git python3-pip ruby wget bind-utils inotify-tools
 
-# 2. Запуск Docker
+# 2. Установка Docker (официальный репозиторий)
 dnf remove -y docker docker-client docker-client-latest docker-common docker-latest docker-latest-logrotate docker-logrotate docker-engine
-
 dnf install -y dnf-plugins-core
 dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
 dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -62,13 +66,12 @@ dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 systemctl enable --now docker
 usermod -aG docker ec2-user
 
-docker compose version
+# Алиас для удобства
 echo 'alias docker-compose="docker compose"' >> /home/ec2-user/.bashrc
 
-# 3. Запуск Nginx 
+# 3. Запуск Nginx (Reverse Proxy)
 systemctl enable --now nginx
 
-# конфиг для HTTP 
 cat <<NGINX > /etc/nginx/conf.d/ghostfolio.conf
 server {
     listen 80;
@@ -84,99 +87,99 @@ server {
 }
 NGINX
 
-# Проверка и перезапуск Nginx
 nginx -t
 systemctl reload nginx
 
 # 4. Запуск приложения Ghostfolio
 cd /home/ec2-user
 if [ ! -d ghostfolio ]; then
-  git clone https://github.com/ghostfolio/ghostfolio.git
-  chown -R ec2-user:ec2-user ghostfolio
+    git clone https://github.com/ghostfolio/ghostfolio.git
+    chown -R ec2-user:ec2-user ghostfolio
 fi
 cd ghostfolio
 cp -n .env.example .env || true
 
-# Запускаем от имени ec2-user
+# Запускаем Ghostfolio через Docker Compose
 runuser -l ec2-user -c "cd /home/ec2-user/ghostfolio && docker compose -f docker/docker-compose.yml up -d"
 
-# 6. Установка Certbot 
+# 5. Установка Certbot (SSL)
 python3 -m venv /opt/certbot
 /opt/certbot/bin/pip install --upgrade pip
 /opt/certbot/bin/pip install certbot certbot-nginx
 ln -sf /opt/certbot/bin/certbot /usr/bin/certbot
 
-# 7. ОЖИДАНИЕ DNS 
+# 6. Ожидание DNS для SSL
 PUBLIC_IP=$(curl -s http://checkip.amazonaws.com)
-
-echo "Waiting for DNS propagation..."
-echo "My IP: $PUBLIC_IP"
-
-MAX_RETRIES=60 # 60 попыток по 10 сек = 10 минут ожидания
+MAX_RETRIES=60 
 COUNT=0
 
 while [ $COUNT -lt $MAX_RETRIES ]; do
     CURRENT_DNS=$(dig +short $DOMAIN | tail -n1)
-    
-    echo "Check $COUNT: DNS reports $CURRENT_DNS"
-    
     if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
-        echo "DNS matches! Starting Certbot..."
         break
     fi
-    
     sleep 10
     COUNT=$((COUNT+1))
 done
 
-if [ "$CURRENT_DNS" != "$PUBLIC_IP" ]; then
-    echo "Error: DNS did not propagate in time. Skipping SSL."
-    exit 1
+if [ "$CURRENT_DNS" == "$PUBLIC_IP" ]; then
+    certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
 fi
 
-# 8. Запуск Certbot
-certbot --nginx --non-interactive --agree-tos --email "$EMAIL" -d "$DOMAIN" --redirect
-
-# 5. WATCHER SCRIPT
+# 7. WATCHER SCRIPT (Авто-перезапуск контейнеров при изменении конфига)
 cat <<'WATCHER' > /usr/local/bin/docker-compose-watcher.sh
 #!/bin/bash
 TARGET_DIR="/home/ec2-user/ghostfolio"
 FILE_NAME="docker-compose.yml"
-
-echo "Starting watcher for $TARGET_DIR/$FILE_NAME..."
-
 while true; do
   inotifywait -e close_write "$TARGET_DIR/$FILE_NAME"
-  
-  echo "File changed! Redeploying..."
   cd "$TARGET_DIR"
-  
   docker compose pull
   docker compose up -d
 done
 WATCHER
-
 chmod +x /usr/local/bin/docker-compose-watcher.sh
 
-# systemd сервіс для watcher
+# Создание сервиса для Watcher
 cat <<SERVICE > /etc/systemd/system/docker-watcher.service
 [Unit]
 Description=Docker Compose Watcher
 After=docker.service network.target
-
 [Service]
 Type=simple
 User=root
 ExecStart=/usr/local/bin/docker-compose-watcher.sh
 Restart=always
-
 [Install]
 WantedBy=multi-user.target
 SERVICE
-
 systemctl enable --now docker-watcher.service
+
+# 8. СКРИПТ БЭКАПА В S3 (Task 3.2.6)
+# Создаем дамп базы и загружаем в S3
+cat <<'BACKUP' > /usr/local/bin/db_backup.sh
+#!/bin/bash
+TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
+BACKUP_NAME="ghostfolio_db_\$TIMESTAMP.sql"
+BACKUP_PATH="/tmp/\$BACKUP_NAME"
+S3_PATH="s3://${var.s3_bucket_name}/backups/\$BACKUP_NAME"
+
+# Снимаем бэкап из Docker-контейнера
+# Используем имя контейнера из docker-compose.yml (обычно gf-postgres)
+docker exec gf-postgres pg_dump -U root ghostfolio > \$BACKUP_PATH
+
+# Загружаем файл в S3 бакет
+aws s3 cp \$BACKUP_PATH \$S3_PATH
+
+# Удаляем временный файл
+rm \$BACKUP_PATH
+BACKUP
+chmod +x /usr/local/bin/db_backup.sh
+
+# 9. НАСТРОЙКА CRON JOB (Task 3.2.6)
+# Запуск бэкапа ежедневно в 3:00 утра
+(crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/db_backup.sh >> /var/log/backup.log 2>&1") | crontab -
 
 echo "Setup Complete!"
 EOF
 }
-

@@ -17,3 +17,13 @@ variable "enable_eip" {
   type    = bool
   default = false
 }
+
+variable "s3_bucket_name" {
+  description = "Name of the S3 bucket for database backups"
+  type        = string
+}
+
+variable "iam_instance_profile_name" {
+  description = "The name of the IAM instance profile to attach to the EC2"
+  type        = string
+}
