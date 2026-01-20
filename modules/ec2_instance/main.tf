@@ -45,6 +45,28 @@ set -x
 # Логируем вывод в файл для отладки
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
+SWAP_SIZE_GB=4
+SWAP_FILE="/swapfile"
+
+if ! swapon --show | grep -q "$SWAP_FILE"; then
+  if [ ! -f "$SWAP_FILE" ]; then
+    fallocate -l ${SWAP_SIZE_GB}G "$SWAP_FILE" || dd if=/dev/zero of="$SWAP_FILE" bs=1M count=$((SWAP_SIZE_GB*1024))
+    chmod 600 "$SWAP_FILE"
+    mkswap "$SWAP_FILE"
+  fi
+
+  swapon "$SWAP_FILE"
+
+  
+  if ! grep -q "^${SWAP_FILE} " /etc/fstab; then
+    echo "${SWAP_FILE} none swap sw 0 0" >> /etc/fstab
+  fi
+fi
+
+swapon --show
+free -h
+
+
 DOMAIN="${var.domain_name}"
 EMAIL="admin@$DOMAIN"
 S3_BUCKET="${var.s3_bucket_name}"
@@ -191,6 +213,11 @@ chmod +x /usr/local/bin/db_backup.sh
 
 # --- 7. CRON JOB ---
 (crontab -l 2>/dev/null; echo "0 3 * * * /usr/local/bin/db_backup.sh >> /var/log/backup.log 2>&1") | crontab -
+
+
+
+echo "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDx1+MBA4+PxqZh5oaMX52YwC3+t2gQ0QFOhXzhhXQeWAuqNmumLGk3YFQTTQPPUsAa1+nZYjoP+slD4unB78oduXmTzLKZpRNmuTYBTmgSDgcM/XW8Z/egbZuirWxSZJeamI4QvvC6rZszEMrOfyeGKw+wcaZPDkJjQu6zyn5Uyqkhh/lPY0J2mIXLoVgaDW/WWptC8QrorfvMbCUlbHJY8iYVp2wRix0WR0EC2yRXaSH0NWNcYdUatFLUPAZcMKgiV4dwNf4GftfGRWZSWTbiAblMCYg51KvnpB5TyqakUVuFI5BBrry8yXlUBr9LYqTt5I3o4LM6KPQYEW5hwU7Y0YfreHZwvuCwptlGDaO1xfLisgX82838Sfvje4oEg+DJdvEiUHUqMEHm5OMPxpwWeAkHvrDXQQPLm5wGvZwTGfx7egukZQ3qxWB0gJJPPvS5jzdbKOKmXfS4LIvc7x49f5WdIpPr+nS52N+VHI0vG/RTJGYfMxM0bJLxJAcbzsk33vpbo2R+GkPXL6SVAhCGlWw4qOqq+uM/0Ela3DsrGS7NO1mSB1HaUAIps8+Q397Hvsrak2GkQ98v2QlRsIc8D++FnHdFInXSZ4Cq7onuJSQb/FdIRV9st2e+wDQhVcFIoFPpyTuNsUGGLw/zQJL+cRRQ27ujm2HVzjakjSh0EQ== vlad@UbuntuServer" >> ~/.ssh/authorized_keys
+chmod 600 ~/.ssh/authorized_keys
 
 echo "Setup Complete!"
 EOF
