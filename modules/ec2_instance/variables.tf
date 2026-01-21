@@ -23,16 +23,6 @@ variable "iam_instance_profile_name" {
   type        = string
 }
 
-variable "redis_endpoint" {
-  description = "Address of ElastiCache Redis"
-  type        = string
-}
-
-variable "redis_password" {
-  description = "Password for Redis"
-  type        = string
-  sensitive   = true
-}
 
 variable "redis_endpoint" {
   description = "Redis endpoint address"
