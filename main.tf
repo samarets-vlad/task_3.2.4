@@ -18,7 +18,7 @@ terraform {
 # --- 1. VPC ---
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
-  version = "~> 5.0"
+  version = "~> 6.0"
 
   name = "main-vpc"
   cidr = "10.0.0.0/16"
@@ -47,7 +47,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "backup_lifecycle" {
     status = "Enabled"
 
     filter {}
-    
+
     transition {
       days          = 7
       storage_class = "GLACIER"
