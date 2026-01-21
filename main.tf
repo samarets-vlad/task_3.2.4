@@ -144,6 +144,21 @@ resource "random_password" "redis_password" {
   special          = false
 }
 
+resource "random_password" "postgres_password" {
+  length           = 16
+  special          = false
+}
+
+resource "random_password" "access_token_salt" {
+  length           = 32
+  special          = false
+}
+
+resource "random_password" "jwt_secret_key" {
+  length           = 32
+  special          = false
+}
+
 module "elasticache" {
   source = "./modules/elasticache"
   
