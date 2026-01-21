@@ -167,3 +167,8 @@ output "server_public_ip" {
   description = "Public IP address of the web server"
   value       = module.web_server.public_ip
 }
+
+resource "aws_iam_role_policy_attachment" "ecr_read_access" {
+  role       = aws_iam_role.s3_backup_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
