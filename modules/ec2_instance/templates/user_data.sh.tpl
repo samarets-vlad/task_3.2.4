@@ -23,7 +23,7 @@ fi
 
 echo ">>> STAGE 2: INSTALL PACKAGES"
 dnf update -y
-dnf install -y docker nginx cronie git python3-pip ruby wget bind-utils inotify-tools awscli curl amazon-cloudwatch-agent
+dnf install -y --allowerasing docker nginx cronie git python3-pip ruby wget bind-utils inotify-tools awscli curl amazon-cloudwatch-agent
 
 systemctl enable --now docker
 systemctl enable --now nginx
