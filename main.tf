@@ -178,9 +178,14 @@ module "web_server" {
   s3_bucket_name            = aws_s3_bucket.db_backups.id
   iam_instance_profile_name = aws_iam_instance_profile.ec2_profile.name
 
-  # [NEW] Передаємо дані Redis в модуль сервера
   redis_endpoint = module.elasticache.redis_endpoint
+  redis_port     = module.elasticache.redis_port
   redis_password = random_password.redis_password.result
+
+  
+  postgres_password = random_password.postgres_password.result
+  access_token_salt = random_password.access_token_salt.result
+  jwt_secret_key    = random_password.jwt_secret_key.result
 }
 
 # --- 6. ROUTE 53 ---
