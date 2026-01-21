@@ -4,7 +4,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0" 
+      version = "~> 6.0" 
     }
   }
   
@@ -45,6 +45,9 @@ resource "aws_s3_bucket_lifecycle_configuration" "backup_lifecycle" {
   rule {
     id     = "archive_and_delete"
     status = "Enabled"
+
+    filter {}
+    
     transition {
       days          = 7
       storage_class = "GLACIER"
