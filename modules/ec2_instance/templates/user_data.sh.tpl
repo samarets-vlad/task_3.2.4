@@ -68,6 +68,8 @@ JWT_SECRET_KEY=${jwt_secret_key}
 NODE_ENV=production
 
 # Redis
+REDIS_URL=rediss://:${redis_password}@${redis_host}:${redis_port}
+
 REDIS_HOST=${redis_host}
 REDIS_PORT=${redis_port}
 REDIS_PASSWORD=${redis_password}
@@ -136,9 +138,11 @@ while true; do
   
   # Оновлюємо образи
   docker compose -f docker/docker-compose.yml pull
-  
+
+  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 170934847890.dkr.ecr.us-east-1.amazonaws.com
+
   # Запускаємо з підстановкою змінних з .env.infra
-  docker compose --env-file /home/ec2-user/.env.infra -f docker/docker-compose.yml up -d
+  docker compose --env-file /home/ec2-user/.env.infra -f /home/ec2-user/ghostfolio/docker-compose.yml up -d
 done
 WATCHER
 chmod +x /usr/local/bin/docker-compose-watcher.sh
