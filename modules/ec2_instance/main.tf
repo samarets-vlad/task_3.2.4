@@ -174,16 +174,16 @@ systemctl enable --now docker-watcher.service
 # 10. BACKUP SCRIPT
 cat <<BACKUP > /usr/local/bin/db_backup.sh
 #!/bin/bash
-TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
-BACKUP_NAME="ghostfolio_db_\$TIMESTAMP.sql"
-BACKUP_PATH="/tmp/\$BACKUP_NAME"
-S3_PATH="s3://${var.s3_bucket_name}/backups/\$BACKUP_NAME"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_NAME="ghostfolio_db_$TIMESTAMP.sql"
+BACKUP_PATH="/tmp/$BACKUP_NAME"
+S3_PATH="s3://ghostfolio-backups-d8774eea/backups/$BACKUP_NAME"
 
 echo "Starting backup..."
-# Перевірено: user / ghostfolio-db
-docker exec gf-postgres pg_dump -U user ghostfolio-db > \$BACKUP_PATH
-aws s3 cp \$BACKUP_PATH \$S3_PATH
-rm \$BACKUP_PATH
+# Перевірено: user / ghostfolio
+docker exec gf-postgres pg_dump -U root ghostfolio > $BACKUP_PATH
+aws s3 cp $BACKUP_PATH $S3_PATH
+rm $BACKUP_PATH
 echo "Done!"
 BACKUP
 chmod +x /usr/local/bin/db_backup.sh
