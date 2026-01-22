@@ -219,8 +219,3 @@ resource "aws_eip_association" "web" {
   instance_id   = module.web_server.instance_id
   allocation_id = aws_eip.web.id
 }
-
-output "server_public_ip2" {
-  description = "Public IP address (Elastic IP)"
-  value       = aws_eip.web.public_ip
-}
