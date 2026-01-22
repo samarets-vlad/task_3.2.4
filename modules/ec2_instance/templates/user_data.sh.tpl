@@ -31,6 +31,11 @@ systemctl enable --now nginx
 systemctl enable --now crond
 usermod -aG docker ec2-user
 
+# Ensure deploy dir exists and is writable for scp/ec2-user
+mkdir -p /home/ec2-user/ghostfolio
+chown -R ec2-user:ec2-user /home/ec2-user/ghostfolio
+chmod 755 /home/ec2-user/ghostfolio
+
 # Docker Compose plugin
 mkdir -p /usr/local/lib/docker/cli-plugins
 curl -fSL "https://github.com/docker/compose/releases/download/v2.24.1/docker-compose-linux-x86_64" \
@@ -58,14 +63,14 @@ CW_CONFIG
   -c file:/opt/aws/amazon-cloudwatch-agent/bin/config.json -s
 
 echo ">>> STAGE 4: STUNNEL (REDIS TLS PROXY)"
-LOCAL_IP="$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4 || true)"
-if [ -z "$LOCAL_IP" ]; then
-  LOCAL_IP="$(hostname -I | awk '{print $1}')"
-fi
+# Avoid IMDS curl quirks: fallback to hostname -I (works in all cases)
+LOCAL_IP="$(hostname -I | awk '{print $1}')"
 
 cat > /etc/stunnel/redis-tunnel.conf <<EOF
+# IMPORTANT: run in foreground for systemd Type=simple
+foreground = yes
+
 fips = no
-pid = /var/run/stunnel.pid
 debug = 4
 delay = yes
 options = NO_SSLv2
@@ -105,11 +110,12 @@ ACCESS_TOKEN_SALT=${access_token_salt}
 JWT_SECRET_KEY=${jwt_secret_key}
 NODE_ENV=production
 
-# Redis через stunnel (TLS снаружи, внутри redis://)
+# Redis via stunnel on the host
 REDIS_PASSWORD=${redis_password}
-REDIS_HOST=$LOCAL_IP
+REDIS_HOST=host.docker.internal
 REDIS_PORT=6380
-REDIS_URL=redis://:${redis_password}@$LOCAL_IP:6380
+REDIS_URL=redis://:${redis_password}@host.docker.internal:6380
+
 
 AWS_REGION=us-east-1
 AWS_LOG_GROUP_APP=ghostfolio-app-logs
@@ -165,6 +171,9 @@ TARGET_DIR="/home/ec2-user/ghostfolio"
 FILE_NAME="docker-compose.yml"
 
 mkdir -p "$TARGET_DIR"
+chown -R ec2-user:ec2-user "$TARGET_DIR"
+chmod 755 "$TARGET_DIR"
+
 ln -sf /home/ec2-user/.env.infra "$TARGET_DIR/.env"
 
 while [ ! -f "$TARGET_DIR/$FILE_NAME" ]; do
