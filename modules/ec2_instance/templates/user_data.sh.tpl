@@ -169,29 +169,36 @@ set -euo pipefail
 
 TARGET_DIR="/home/ec2-user/ghostfolio"
 FILE_NAME="docker-compose.yml"
+FILE_PATH="$TARGET_DIR/$FILE_NAME"
 
 mkdir -p "$TARGET_DIR"
 chown -R ec2-user:ec2-user "$TARGET_DIR"
 chmod 755 "$TARGET_DIR"
 
-ln -sf /home/ec2-user/.env.infra "$TARGET_DIR/.env"
-
-while [ ! -f "$TARGET_DIR/$FILE_NAME" ]; do
-  sleep 3
-done
-
-while true; do
-  inotifywait -e close_write "$TARGET_DIR/$FILE_NAME"
+deploy() {
   cd "$TARGET_DIR"
-
-  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 170934847890.dkr.ecr.us-east-1.amazonaws.com
-
   ln -sf /home/ec2-user/.env.infra "$TARGET_DIR/.env"
+  aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 170934847890.dkr.ecr.us-east-1.amazonaws.com
   docker compose pull
   docker compose up -d
+}
+
+# 1) Если файл уже есть — поднимай сразу
+if [ -f "$FILE_PATH" ]; then
+  deploy
+fi
+
+# 2) Жди появления/обновления файла (scp/tar часто делает create/move, не close_write)
+inotifywait -m -e close_write,create,moved_to --format '%f' "$TARGET_DIR" | while read -r f; do
+  if [ "$f" = "$FILE_NAME" ]; then
+    deploy
+  fi
 done
 WATCHER
 chmod +x /usr/local/bin/docker-compose-watcher.sh
+systemctl daemon-reload
+systemctl restart docker-watcher.service
+
 
 cat > /etc/systemd/system/docker-watcher.service <<'SERVICE'
 [Unit]
