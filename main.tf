@@ -1,5 +1,5 @@
 terraform {
-  required_version = ">= 1.14.3" 
+  required_version = ">= 1.7.0" 
   
   required_providers {
     aws = {
@@ -201,11 +201,21 @@ resource "aws_route53_record" "web" {
   name            = var.domain_name
   type            = "A"
   ttl             = "300"
-  records         = [module.web_server.public_ip]
+  records         = [aws_eip.web.public_ip]
   allow_overwrite = true
 }
 
 output "server_public_ip" {
   description = "Public IP address of the web server"
   value       = module.web_server.public_ip
+}
+
+resource "aws_eip" "web" {
+  domain = "vpc"
+  tags = { Name = "ghostfolio-eip" }
+}
+
+resource "aws_eip_association" "web" {
+  instance_id   = module.web_server.instance_id
+  allocation_id = aws_eip.web.id
 }
