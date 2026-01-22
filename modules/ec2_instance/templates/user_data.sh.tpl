@@ -209,14 +209,14 @@ cat > /usr/local/bin/db_backup.sh <<EOF
 set -euo pipefail
 
 TIMESTAMP=\$(date +%Y%m%d_%H%M%S)
-BACKUP_NAME="ghostfolio_db_\${TIMESTAMP}.sql"
-BACKUP_PATH="/tmp/\${BACKUP_NAME}"
-S3_PATH="s3://${s3_bucket_name}/backups/\${BACKUP_NAME}"
+BACKUP_NAME="ghostfolio_db_\$TIMESTAMP.sql"
+BACKUP_PATH="/tmp/\$BACKUP_NAME"
+S3_PATH="s3://${s3_bucket_name}/backups/\$BACKUP_NAME"
 
 cd /home/ec2-user/ghostfolio
-docker compose exec -T postgres pg_dump -U root ghostfolio > "\${BACKUP_PATH}"
-aws s3 cp "\${BACKUP_PATH}" "\${S3_PATH}"
-rm -f "\${BACKUP_PATH}"
+docker compose exec -T postgres pg_dump -U root ghostfolio > "\$BACKUP_PATH"
+aws s3 cp "\$BACKUP_PATH" "\$S3_PATH"
+rm -f "\$BACKUP_PATH"
 EOF
 
 chmod +x /usr/local/bin/db_backup.sh
