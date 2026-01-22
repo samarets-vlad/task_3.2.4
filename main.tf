@@ -221,5 +221,6 @@ resource "aws_eip_association" "web" {
 }
 
 output "server_public_ip" {
-  value = aws_eip.web.public_ip
+  description = "Public IP address (Elastic IP)"
+  value       = aws_eip.web.public_ip
 }
